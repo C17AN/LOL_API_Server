@@ -1,22 +1,22 @@
 const express = require("express");
 const cors = require("cors");
+const serverless = require("serverless-http");
 const axios = require("axios");
 const app = express();
 const moment = require("moment");
 
 app.use(cors());
 
-const currentWeek = moment().week();
+let currentWeek = 0;
+let prevWeek = 0;
 let gameCount = 0;
 let prevCount = 0;
+let timeSum = 0;
 let weeklyGame = [];
 let weeklyPlayTime = [];
-// 1년은 53주
-const getWeeklyGame = (el) => {
-  const playWeek = new Date(el.timestamp).toLocaleDateString();
-  if (currentWeek === moment(playWeek, "YYYYMMDD").week()) {
-    return true;
-  }
+
+const checkWeek = () => {
+  currentWeek = moment().week();
 };
 
 const checkUpdate = (matches) => {
@@ -25,7 +25,9 @@ const checkUpdate = (matches) => {
 };
 
 const playtimeUpdate = (gameLists) => {
-  let timeSum = 0;
+  if (prevWeek !== currentWeek) {
+    timeSum = 0;
+  }
   for (let i = prevCount; i < gameCount; i++) {
     setTimeout(
       () =>
@@ -48,6 +50,14 @@ const playtimeUpdate = (gameLists) => {
   }
 };
 
+// 게임 목록중에서 이번 주에 플레이한 게임만 걸러냄 (65번 라인 filter 의 인자 함수)
+const getWeeklyGame = (el) => {
+  const playWeek = new Date(el.timestamp).toLocaleDateString();
+  if (currentWeek === moment(playWeek, "YYYYMMDD").week()) {
+    return true;
+  }
+};
+
 const getWeeklyMatchList = () => {
   axios
     .get(
@@ -60,6 +70,8 @@ const getWeeklyMatchList = () => {
       }
     )
     .then((res) => {
+      // 이번주 확인
+      checkWeek();
       // 업데이트 확인
       if (checkUpdate(res.data.matches.filter(getWeeklyGame))) {
         weeklyGame[currentWeek] = gameCount;
@@ -72,6 +84,13 @@ const getWeeklyMatchList = () => {
   console.log(weeklyPlayTime[currentWeek]);
   return getWeeklyMatchList;
 };
+
+app.all("*", function (req, res, next) {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "X-Requested-With");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
 
 app.listen(5000 || env.PORT, () => {
   console.log("server is running");
@@ -94,3 +113,5 @@ app.get("/getWeeklyData", (req, res) => {
       : 0,
   });
 });
+
+module.exports.handler = serverless(app);
