@@ -7,69 +7,90 @@ const moment = require("moment");
 app.use(cors());
 
 const currentWeek = moment().week();
+let gameCount = 0;
+let prevCount = 0;
 let weeklyGame = [];
 let weeklyPlayTime = [];
-let playTime = 0;
-
+// 1년은 53주
 const getWeeklyGame = (el) => {
   const playWeek = new Date(el.timestamp).toLocaleDateString();
-  return currentWeek === moment(playWeek, "YYYYMMDD").week(); // 1년 중 몇번째 주인지
+  if (currentWeek === moment(playWeek, "YYYYMMDD").week()) {
+    return true;
+  }
 };
 
-const getWeeklyPlayTime = async (weeklyGame) => {
-  let promises = [];
-  weeklyGame.forEach((game) => {
-    promises.push(
-      axios.get(
-        `https://kr.api.riotgames.com/lol/match/v4/matches/${game.gameId}`,
-        {
-          headers: {
-            "X-Riot-Token": "RGAPI-99172655-e0d3-4b18-be39-72a48a390896",
-          },
-        }
-      )
+const checkUpdate = (matches) => {
+  gameCount = matches.length; // res.data.matches
+  return gameCount > prevCount ? true : false;
+};
+
+const playtimeUpdate = (gameLists) => {
+  let timeSum = 0;
+  for (let i = prevCount; i < gameCount; i++) {
+    setTimeout(
+      () =>
+        axios
+          .get(
+            // 최근전적 리스트 (https://developer.riotgames.com/apis#match-v4/GET_getMatchlist)
+            `https://kr.api.riotgames.com/lol/match/v4/matches/${gameLists[i].gameId}`,
+            {
+              headers: {
+                "X-Riot-Token": "RGAPI-fb1c750c-9f46-411c-bbb4-9689a08c37bd",
+              },
+            }
+          )
+          .then((res) => {
+            timeSum += res.data.gameDuration;
+            weeklyPlayTime[currentWeek] = timeSum;
+          }),
+      i * 1000
     );
-  });
-  Promise.all(promises).then((res) =>
-    res.forEach((el) => (playTime += el.data.gameDuration))
-  );
+  }
 };
 
-const getWeeklyMatchList = async () => {
-  await axios
+const getWeeklyMatchList = () => {
+  axios
     .get(
       // 최근전적 리스트 (https://developer.riotgames.com/apis#match-v4/GET_getMatchlist)
-      "https://kr.api.riotgames.com/lol/match/v4/matchlists/by-account/fPzgayIhn1JPjusxEb0AlVCOelgfXotbPGFNkArG-xhWcgPAC1ir_9_l?endIndex=20",
+      "https://kr.api.riotgames.com/lol/match/v4/matchlists/by-account/fPzgayIhn1JPjusxEb0AlVCOelgfXotbPGFNkArG-xhWcgPAC1ir_9_l?endIndex=50",
       {
         headers: {
-          "X-Riot-Token": "RGAPI-99172655-e0d3-4b18-be39-72a48a390896",
+          "X-Riot-Token": "RGAPI-fb1c750c-9f46-411c-bbb4-9689a08c37bd",
         },
       }
     )
-    .then(
-      (res) =>
-        (weeklyGame[currentWeek] = res.data.matches.filter(getWeeklyGame))
-    )
+    .then((res) => {
+      // 업데이트 확인
+      if (checkUpdate(res.data.matches.filter(getWeeklyGame))) {
+        weeklyGame[currentWeek] = gameCount;
+        playtimeUpdate(res.data.matches.filter(getWeeklyGame));
+      }
+      prevCount = gameCount;
+    })
     .catch((err) => console.error(err));
+  console.log(weeklyGame[currentWeek]);
+  console.log(weeklyPlayTime[currentWeek]);
+  return getWeeklyMatchList;
 };
 
-app.listen(5000 || env.PORT, async () => {
+app.listen(5000 || env.PORT, () => {
   console.log("server is running");
-  await getWeeklyMatchList();
-  await getWeeklyPlayTime(weeklyGame[currentWeek]);
+  setInterval(getWeeklyMatchList(), 5000);
   // 한시간마다 데이터 갱신
 });
 
 app.get("/getWeeklyData", (req, res) => {
   res.send({
-    currentCount: weeklyGame[currentWeek].length,
-    prevCount: weeklyGame[currentWeek - 1].length,
-    currentTime: 0,
-    prevTime: 0,
+    currentWeek: currentWeek,
+    currentCount: weeklyGame[currentWeek], // 이번주 판수
+    prevCount: weeklyGame[currentWeek - 1]
+      ? weeklyGame[currentWeek - 1].length
+      : 0, // 지난주 판수
+    currentPlayTime: weeklyPlayTime[currentWeek]
+      ? weeklyPlayTime[currentWeek]
+      : 0,
+    prevPlayTime: weeklyPlayTime[currentWeek - 1]
+      ? weeklyPlayTime[currentWeek - 1]
+      : 0,
   });
 });
-
-setTimeout(() => {
-  console.log(playTime);
-  console.log(weeklyGame[currentWeek].length);
-}, 3000);
